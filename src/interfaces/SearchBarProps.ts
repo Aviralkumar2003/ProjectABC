@@ -1,6 +1,6 @@
 interface SearchBarProps {
-    onSearch: (coordinates: [number, number],
-        bbox: [number, number, number, number]
+    onSearch: (centerCoordinates: [number, number],
+        polygonCoordinates: [number, number, number, number]
     ) => void;
 }
 

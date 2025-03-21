@@ -4,11 +4,12 @@ import "mapbox-gl/dist/mapbox-gl.css";
 import SearchBar from "./SearchBar";
 import zonesData from "../data/zonesData";
 import config from "../config/config";
+import { ZoneFillColour, ZoneOutlineColour } from "../enums/enums";
 
 const MapComponent = () => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
-  const [showZones, setShowZones] = useState<boolean>(false);
+  const [showZones, setShowZones] = useState<boolean>(true);
 
   useEffect(() => {
     mapboxgl.accessToken = config.mapboxAPI;
@@ -20,33 +21,35 @@ const MapComponent = () => {
         center: [73.934982, 18.550985],
         zoom: 12,
       });
+
+      mapRef.current.on("load", () => {
+        renderZones();
+      });
     }
   }, []);
 
-  const handleSearch = (coords: [number, number], bbox?: [number, number, number, number]) => {
+  const handleSearch = (centerCoordinates: [number, number],polygonCoordinates?: [number, number, number, number]) => {
     if (mapRef.current) {
       mapRef.current.flyTo({
-        center: coords,
+        center: centerCoordinates,
         zoom: 12,
         essential: true,
       });
 
-      if (bbox) {
+      if (polygonCoordinates) {
         const boundaryPolygon = [
-          [bbox[0], bbox[1]], // bottom-left
-          [bbox[2], bbox[1]], // bottom-right
-          [bbox[2], bbox[3]], // top-right
-          [bbox[0], bbox[3]], // top-left
-          [bbox[0], bbox[1]]  // Closing the loop
+          [polygonCoordinates[0], polygonCoordinates[1]], // bottom-left
+          [polygonCoordinates[2], polygonCoordinates[1]], // bottom-right
+          [polygonCoordinates[2], polygonCoordinates[3]], // top-right
+          [polygonCoordinates[0], polygonCoordinates[3]], // top-left
+          [polygonCoordinates[0], polygonCoordinates[1]], // Closing the loop
         ];
 
-  
         if (mapRef.current.getLayer("boundary-layer")) {
           mapRef.current.removeLayer("boundary-layer");
           mapRef.current.removeSource("boundary");
         }
 
-        
         mapRef.current.addSource("boundary", {
           type: "geojson",
           data: {
@@ -59,7 +62,6 @@ const MapComponent = () => {
           },
         });
 
-        
         mapRef.current.addLayer({
           id: "boundary-layer",
           type: "line",
@@ -74,46 +76,91 @@ const MapComponent = () => {
     }
   };
 
+  const renderZones = () => {
+    if (!mapRef.current) return;
+
+    const globalZone = zonesData.find((zone) => zone.id === "global-zone");
+    if (globalZone && !mapRef.current.getSource(globalZone.id)) {
+      mapRef.current.addSource(globalZone.id, {
+        type: "geojson",
+        data: {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "Polygon",
+            coordinates: globalZone.coordinates,
+          },
+        },
+      });
+
+      mapRef.current.addLayer({
+        id: `${globalZone.id}-layer`,
+        type: "fill",
+        source: globalZone.id,
+        paint: {
+          "fill-color": ZoneFillColour.PERMITTED,
+          "fill-outline-color": ZoneOutlineColour.PERMITTED,
+          "fill-opacity": 0.2,
+        },
+      });
+    }
+
+    zonesData.forEach((zone) => {
+      if (zone.id === "global-zone") return;
+      if (mapRef.current && !mapRef.current.getSource(zone.id)) {
+        mapRef.current.addSource(zone.id, {
+          type: "geojson",
+          data: {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "Polygon",
+              coordinates: zone.coordinates,
+            },
+          },
+        });
+
+        const fillColor =ZoneFillColour[zone.type.toUpperCase() as keyof typeof ZoneFillColour];
+        const outlineColor =ZoneOutlineColour[zone.type.toUpperCase() as keyof typeof ZoneOutlineColour];
+
+        mapRef.current.addLayer({
+          id: `${zone.id}-layer`,
+          type: "fill",
+          source: zone.id,
+          paint: {
+            "fill-color": fillColor,
+            "fill-outline-color": outlineColor,
+            "fill-opacity": 0.5,
+          },
+        });
+      }
+    });
+  };
+
+  const removeZones = () => {
+    if (!mapRef.current) return;
+
+    zonesData.forEach((zone) => {
+      if (mapRef.current?.getLayer(`${zone.id}-layer`)) {
+        mapRef.current.removeLayer(`${zone.id}-layer`);
+      }
+      if (mapRef.current?.getSource(zone.id)) {
+        mapRef.current.removeSource(zone.id);
+      }
+    });
+  };
+
   const handleShowZones = () => {
     if (!mapRef.current) return;
 
-    const currentState = showZones;
-    setShowZones(!currentState);
-
-    if (showZones) {
-      zonesData.forEach((zone) => {
-        if (mapRef.current && !mapRef.current.getSource(zone.id)) {
-          mapRef.current.addSource(zone.id, {
-            type: "geojson",
-            data: {
-              type: "Feature",
-              properties: {},
-              geometry: {
-                type: "Polygon",
-                coordinates: zone.coordinates,
-              },
-            },
-          });
-
-          mapRef.current.addLayer({
-            id: `${zone.id}-layer`,
-            type: "fill",
-            source: zone.id,
-            paint: {
-              "fill-color": "#007cbf",
-              "fill-opacity": 0.4,
-            },
-          });
-        }
-      });
-    } else {
-      zonesData.forEach((zone) => {
-        if (mapRef.current) {
-          mapRef.current.removeLayer(`${zone.id}-layer`);
-          mapRef.current.removeSource(zone.id);
-        }
-      });
-    }
+    setShowZones((prev) => {
+      if (prev) {
+        removeZones();
+      } else {
+        renderZones();
+      }
+      return !prev;
+    });
   };
 
   return (
@@ -131,7 +178,7 @@ const MapComponent = () => {
           onClick={handleShowZones}
           className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
         >
-          Show Zones
+          {showZones ? "Hide Zones" : "Show Zones"}
         </button>
       </div>
     </div>
