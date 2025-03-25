@@ -1,6 +1,6 @@
 const zonesData = [
   {
-    id: "global-zone",
+    id: "zone-0",
     coordinates: [
       [
         [-180, -90], // Bottom-left
@@ -10,8 +10,7 @@ const zonesData = [
         [-180, -90], // Closing the polygon
       ],
     ],
-    type: "permitted",
-    outlineColour: "#006300",
+    type: "permitted"
   },
   {
     "id": "zone-1",

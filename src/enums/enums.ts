@@ -1,5 +1,5 @@
 enum ZoneFillColour {
-    PERMITTED="#00FF00",
+    PERMITTED="#85ff85",
     RESTRICTED="#FF0000",
     CONDITIONAL="#ffff00"
 }

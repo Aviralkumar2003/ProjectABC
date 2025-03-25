@@ -5,179 +5,190 @@ import SearchBar from "./SearchBar";
 import zonesData from "../data/zonesData";
 import config from "../config/config";
 import { ZoneFillColour, ZoneOutlineColour } from "../enums/enums";
+import droneMarker from "../assets/droneMarker";
 
 const MapComponent = () => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<mapboxgl.Map | null>(null);
-  const [showZones, setShowZones] = useState<boolean>(true);
+  const [layerIds, setLayerIds] = useState<string[]>([]);
+  const [mapLoaded, setMapLoaded] = useState(false);
+  const [showZones, setShowZones] = useState(true);
+
+  const [marker, setMarker] = useState<mapboxgl.Marker | null>(null);
+  const [markerPosition, setMarkerPosition] = useState<[number, number]>([73.934982, 18.550985]);
 
   useEffect(() => {
+    if (!mapContainerRef.current || mapRef.current) return;
+
     mapboxgl.accessToken = config.mapboxAPI;
 
-    if (mapContainerRef.current && !mapRef.current) {
-      mapRef.current = new mapboxgl.Map({
-        container: mapContainerRef.current,
-        style: "mapbox://styles/mapbox/streets-v11",
-        center: [73.934982, 18.550985],
-        zoom: 12,
-      });
+    mapRef.current = new mapboxgl.Map({
+      container: mapContainerRef.current,
+      style: "mapbox://styles/mapbox/streets-v11",
+      center: [73.934982, 18.550985],
+      zoom: 12,
+    });
 
-      mapRef.current.on("load", () => {
-        renderZones();
-      });
-    }
+    mapRef.current.on("load", () => {
+      setMapLoaded(true);
+      renderZones();
+      addDraggableMarker(markerPosition);
+    });
+
+    return () => {
+      mapRef.current?.remove();
+      mapRef.current = null;
+    };
   }, []);
+  
 
-  const handleSearch = (centerCoordinates: [number, number],polygonCoordinates?: [number, number, number, number]) => {
-    if (mapRef.current) {
-      mapRef.current.flyTo({
-        center: centerCoordinates,
-        zoom: 12,
-        essential: true,
-      });
-
-      if (polygonCoordinates) {
-        const boundaryPolygon = [
-          [polygonCoordinates[0], polygonCoordinates[1]], // bottom-left
-          [polygonCoordinates[2], polygonCoordinates[1]], // bottom-right
-          [polygonCoordinates[2], polygonCoordinates[3]], // top-right
-          [polygonCoordinates[0], polygonCoordinates[3]], // top-left
-          [polygonCoordinates[0], polygonCoordinates[1]], // Closing the loop
-        ];
-
-        if (mapRef.current.getLayer("boundary-layer")) {
-          mapRef.current.removeLayer("boundary-layer");
-          mapRef.current.removeSource("boundary");
-        }
-
-        mapRef.current.addSource("boundary", {
-          type: "geojson",
-          data: {
-            type: "Feature",
-            properties: {},
-            geometry: {
-              type: "Polygon",
-              coordinates: [boundaryPolygon],
-            },
-          },
-        });
-
-        mapRef.current.addLayer({
-          id: "boundary-layer",
-          type: "line",
-          source: "boundary",
-          paint: {
-            "line-color": "#FF0000",
-            "line-width": 2,
-            "line-dasharray": [2, 4],
-          },
-        });
-      }
-    }
-  };
+  useEffect(() => {
+    if (!mapLoaded) return;
+    layerIds.forEach((layerId) => {
+      const visibility = showZones ? "visible" : "none";
+      mapRef.current?.setLayoutProperty(`${layerId}-layer`, "visibility", visibility);
+    });
+  }, [mapLoaded, showZones]);
 
   const renderZones = () => {
     if (!mapRef.current) return;
-
-    const globalZone = zonesData.find((zone) => zone.id === "global-zone");
-    if (globalZone && !mapRef.current.getSource(globalZone.id)) {
-      mapRef.current.addSource(globalZone.id, {
-        type: "geojson",
-        data: {
-          type: "Feature",
-          properties: {},
-          geometry: {
-            type: "Polygon",
-            coordinates: globalZone.coordinates,
-          },
-        },
-      });
-
-      mapRef.current.addLayer({
-        id: `${globalZone.id}-layer`,
-        type: "fill",
-        source: globalZone.id,
-        paint: {
-          "fill-color": ZoneFillColour.PERMITTED,
-          "fill-outline-color": ZoneOutlineColour.PERMITTED,
-          "fill-opacity": 0.2,
-        },
-      });
-    }
-
+  
+    const newLayerIds: string[] = [];
+  
     zonesData.forEach((zone) => {
-      if (zone.id === "global-zone") return;
-      if (mapRef.current && !mapRef.current.getSource(zone.id)) {
-        mapRef.current.addSource(zone.id, {
+      if (!mapRef.current!.getSource(zone.id)) {
+        newLayerIds.push(zone.id);
+  
+        mapRef.current!.addSource(zone.id, {
           type: "geojson",
           data: {
             type: "Feature",
-            properties: {},
+            properties: { id: zone.id, type: zone.type },
             geometry: {
               type: "Polygon",
               coordinates: zone.coordinates,
             },
           },
         });
-
-        const fillColor =ZoneFillColour[zone.type.toUpperCase() as keyof typeof ZoneFillColour];
-        const outlineColor =ZoneOutlineColour[zone.type.toUpperCase() as keyof typeof ZoneOutlineColour];
-
-        mapRef.current.addLayer({
+  
+        mapRef.current!.addLayer({
           id: `${zone.id}-layer`,
           type: "fill",
           source: zone.id,
+          layout: { visibility: "visible" },
           paint: {
-            "fill-color": fillColor,
-            "fill-outline-color": outlineColor,
+            "fill-color": ZoneFillColour[zone.type.toUpperCase() as keyof typeof ZoneFillColour],
+            "fill-outline-color": ZoneOutlineColour[zone.type.toUpperCase() as keyof typeof ZoneOutlineColour],
             "fill-opacity": 0.5,
           },
         });
       }
     });
-  };
 
-  const removeZones = () => {
+    setLayerIds((prevLayerIds) => [...prevLayerIds, ...newLayerIds]);
+  };
+  
+
+  const handleSearch = (centerCoordinates: [number, number], polygonCoordinates?: [number, number, number, number]) => {
     if (!mapRef.current) return;
 
-    zonesData.forEach((zone) => {
-      if (mapRef.current?.getLayer(`${zone.id}-layer`)) {
-        mapRef.current.removeLayer(`${zone.id}-layer`);
-      }
-      if (mapRef.current?.getSource(zone.id)) {
-        mapRef.current.removeSource(zone.id);
-      }
+    mapRef.current.flyTo({
+      center: centerCoordinates,
+      zoom: 12,
+      essential: true,
     });
+
+    if (polygonCoordinates) {
+      const boundaryPolygon = [
+        [polygonCoordinates[0], polygonCoordinates[1]], // bottom-left
+        [polygonCoordinates[2], polygonCoordinates[1]], // bottom-right
+        [polygonCoordinates[2], polygonCoordinates[3]], // top-right
+        [polygonCoordinates[0], polygonCoordinates[3]], // top-left
+        [polygonCoordinates[0], polygonCoordinates[1]], // Closing the loop
+      ];
+
+      if (mapRef.current.getLayer("boundary-layer")) {
+        mapRef.current.removeLayer("boundary-layer");
+        mapRef.current.removeSource("boundary");
+      }
+
+      mapRef.current.addSource("boundary", {
+        type: "geojson",
+        data: {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "Polygon",
+            coordinates: [boundaryPolygon],
+          },
+        },
+      });
+
+      mapRef.current.addLayer({
+        id: "boundary-layer",
+        type: "line",
+        source: "boundary",
+        paint: {
+          "line-color": "#FF0000",
+          "line-width": 2,
+          "line-dasharray": [2, 4],
+        },
+      });
+    }
   };
 
-  const handleShowZones = () => {
+  const addDraggableMarker = (initialPosition: [number, number]) => {
     if (!mapRef.current) return;
 
-    setShowZones((prev) => {
-      if (prev) {
-        removeZones();
+    const newMarker = new mapboxgl.Marker(droneMarker(),{ draggable: true })
+      .setLngLat(initialPosition)
+      .addTo(mapRef.current);
+
+    newMarker.on("dragend", () => {
+      const lngLat = newMarker.getLngLat();
+      setMarkerPosition([lngLat.lng, lngLat.lat]);
+      checkZone(lngLat.lng, lngLat.lat);
+    });
+
+    setMarker(newMarker);
+  };
+
+  const checkZone = (lng: number, lat: number) => {
+    if (!mapRef.current) return;
+    const map = mapRef.current;
+    const allLayers = map.getStyle()?.layers || [];
+  
+    const zoneLayerIds = allLayers
+      .filter(layer => layer.id.endsWith("-layer"))
+      .map(layer => layer.id);
+  
+    if (zoneLayerIds.length > 0) {
+      const features = map.queryRenderedFeatures(map.project([lng, lat]), {
+        layers: zoneLayerIds,
+      });
+  
+      if (features.length > 0) {
+        const zone = features[0].properties;
+        console.log("Current Location:", { longitude: lng, latitude: lat }, " Zone Id:", zone?.id, "Zone Type:", zone?.type);
       } else {
-        renderZones();
+        console.log("Current Location:", { longitude: lng, latitude: lat });
+        console.log("Not inside any zone");
       }
-      return !prev;
-    });
+    } else {
+      console.log("Current Location:", { longitude: lng, latitude: lat });
+    }
   };
+  
 
   return (
     <div>
       <SearchBar onSearch={handleSearch} />
       <div className="h-screen flex items-center justify-center bg-gray-900 p-4">
-        <div
-          ref={mapContainerRef}
-          className="h-[70vh] w-full max-w-4xl rounded-lg border border-gray-700 shadow-lg"
-        />
+        <div ref={mapContainerRef} className="h-[70vh] w-full max-w-4xl rounded-lg border border-gray-700 shadow-lg" />
       </div>
 
       <div className="flex justify-center my-4">
-        <button
-          onClick={handleShowZones}
-          className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700"
-        >
+        <button onClick={() => setShowZones(!showZones)} className="bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700">
           {showZones ? "Hide Zones" : "Show Zones"}
         </button>
       </div>

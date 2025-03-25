@@ -32,7 +32,7 @@ export default function SearchBar({ onSearch }: SearchBarProps) {
         throw new Error("Location not found.");
       }
 
-      console.log(result.features);
+      console.log(result);
 
       const feature = result.features[0];
       const coordinates: [number, number] = feature.center;
