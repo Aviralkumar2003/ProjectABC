@@ -144,7 +144,7 @@ const MapComponent = () => {
       .setLngLat(initialPosition)
       .addTo(mapRef.current);
 
-    newMarker.on("dragend", () => {
+    newMarker.on("drag", () => {
       const lngLat = newMarker.getLngLat();
       setMarkerPosition([lngLat.lng, lngLat.lat]);
       checkZone(lngLat.lng, lngLat.lat);
@@ -152,6 +152,7 @@ const MapComponent = () => {
 
     setMarker(newMarker);
   };
+
 
   const checkZone = (lng: number, lat: number) => {
     if (!mapRef.current) return;
